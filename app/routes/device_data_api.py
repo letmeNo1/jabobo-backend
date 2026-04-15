@@ -11,6 +11,17 @@ from loguru import logger  # 导入 loguru
 
 router = APIRouter()
 
+
+def get_env(key: str, default: str = "") -> str:
+    value = os.getenv(key)
+    return value if value else default
+
+
+def get_ota_dir() -> str:
+    """Resolve the OTA directory from the project root for cross-platform use."""
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(project_root, "OTA")
+
 # 无需鉴权：通过jabobo_id读取设备所有数据
 @router.get("/user/device/full_data")
 async def get_device_full_data(
@@ -150,7 +161,7 @@ async def download_firmware(filename: str):
         raise HTTPException(status_code=404, detail="Firmware file not found")
 
     # 优先在 OTA 目录中查找与请求名称匹配的文件
-    ota_dir = "/var/local/jobobo-backend/OTA"
+    ota_dir = get_ota_dir()
     firmware_path = os.path.join(ota_dir, filename)
 
     # 如果版本化文件不存在，回退到通用 Jabobo.bin（保持向后兼容）
@@ -195,41 +206,46 @@ async def handle_ota_request(
     
     now = datetime.now(timezone.utc)
     timestamp = int(time.mktime(now.timetuple()) * 1000 + now.microsecond / 1000)
-    
+
+    activation_obj = None
+    activation_code = None
+    existing_device = None
+    mac_address = device_info.get("mac_address", "00:00:00:00:00:00")
+
     if not db.connect():
-        logger.error("❌ [OTA_REQUEST] 数据库连接失败")
-        raise HTTPException(status_code=500, detail="数据库连接失败")
-    
-    try:
-        logger.debug(f"🔍 [OTA CHECK] Checking registration for {device_id}")
-        
-        sql = "SELECT username FROM user_personas WHERE jabobo_id = %s"
-        db.cursor.execute(sql, (device_id,))
-        existing_device = db.cursor.fetchone()
-        
-        activation_obj = None
-        activation_code = None
-        
-        if existing_device:
-            logger.info(f"✅ [OTA CHECK] Device {device_id} is registered to: {existing_device.get('username')}")
-        else:
-            logger.warning(f"❌ [OTA CHECK] Device {device_id} not registered, generating activation...")
-            mac_address = device_info.get("mac_address", "00:00:00:00:00:00")
-            activation_code = generate_activation_code_from_mac(mac_address)
-            
-            if mac_address not in unactivated_macs:
-                unactivated_macs.append(mac_address)
-                activation_codes.append(activation_code)
-            
-            logger.debug(f"➕ [OTA ACTIVATION] Unactivated Pool: {len(unactivated_macs)} items")
-            
-            activation_obj = { 
-                "code": activation_code,
-                "message": f"http://xiaozhi.server.com\n{activation_code}",
-                "challenge": mac_address
-            }
-    finally:
-        db.close()
+        logger.warning("⚠️ [OTA_REQUEST] 数据库连接失败，按未注册设备处理")
+    else:
+        try:
+            logger.debug(f"🔍 [OTA CHECK] Checking registration for {device_id}")
+
+            sql = "SELECT username FROM user_personas WHERE jabobo_id = %s"
+            db.cursor.execute(sql, (device_id,))
+            existing_device = db.cursor.fetchone()
+
+            if existing_device:
+                logger.info(f"✅ [OTA CHECK] Device {device_id} is registered to: {existing_device.get('username')}")
+            else:
+                logger.warning(f"❌ [OTA CHECK] Device {device_id} not registered, generating activation...")
+        except Exception as error:
+            logger.warning(f"⚠️ [OTA CHECK] 查询设备绑定状态失败，按未注册设备处理: {error}")
+            existing_device = None
+        finally:
+            db.close()
+
+    if not existing_device:
+        activation_code = generate_activation_code_from_mac(mac_address)
+
+        if mac_address not in unactivated_macs:
+            unactivated_macs.append(mac_address)
+            activation_codes.append(activation_code)
+
+        logger.debug(f"➕ [OTA ACTIVATION] Unactivated Pool: {len(unactivated_macs)} items")
+
+        activation_obj = {
+            "code": activation_code,
+            "message": f"{get_env('FRONTED_URL', 'http://192.168.137.1:8007')}\n{activation_code}",
+            "challenge": mac_address,
+        }
     
     # 优先使用设备上报的 application.version 作为固件版本；依次回退到其他可能的字段或默认值
     app_version = (
@@ -269,7 +285,7 @@ async def handle_ota_request(
     # 首先将 firmware_version 清理为 safe_ver，然后确认 OTA 目录中确实存在该版本文件；
     # 如果不存在则回退到设备上报的 app_version（仍会尝试查找对应文件，若找不到下载路由会回退到通用 Jabobo.bin）
     firmware_version = "2.0.5" # 强制指定为2.0.5以测试版本化文件下载
-    ota_dir = "/var/local/jobobo-backend/OTA"
+    ota_dir = get_ota_dir()
     safe_ver = str(firmware_version).replace(' ', '_')
     versioned_filename = f"Jabobo_{safe_ver}.bin"
     # 如果版本化文件在 OTA 目录中不存在，则回退到 app_version
@@ -286,7 +302,9 @@ async def handle_ota_request(
     logger.info(f"🔧 [OTA FIRMWARE] Using safe_ver: {safe_ver}, versioned_filename: {versioned_filename}")
 
     download_filename = versioned_filename
-    download_url = f"http://121.41.168.85:8007/api/xiaozhi/otaMag/download/{download_filename}"
+    fronted_url = get_env("FRONTED_URL", "http://192.168.137.1:8007").rstrip("/")
+    websocket_url = get_env("WEBSOCKET_URL", "ws://192.168.137.1:8000/xiaozhi/v1/")
+    download_url = f"{fronted_url}/api/xiaozhi/otaMag/download/{download_filename}"
 
     response_data = {
         "server_time": {
@@ -300,7 +318,7 @@ async def handle_ota_request(
             "force": 0
         },
         "websocket": {
-            "url": "ws://121.41.168.85:8000/xiaozhi/v1/"
+            "url": websocket_url
         }
     }
     
