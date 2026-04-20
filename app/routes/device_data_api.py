@@ -7,9 +7,16 @@ import time
 import hashlib
 import os
 from fastapi.requests import Request
+from dotenv import load_dotenv
 from loguru import logger  # 导入 loguru
 
+load_dotenv()
+
 router = APIRouter()
+
+
+def get_env(key: str) -> str:
+    return os.getenv(key, "")
 
 # 无需鉴权：通过jabobo_id读取设备所有数据
 @router.get("/user/device/full_data")
@@ -286,7 +293,10 @@ async def handle_ota_request(
     logger.info(f"🔧 [OTA FIRMWARE] Using safe_ver: {safe_ver}, versioned_filename: {versioned_filename}")
 
     download_filename = versioned_filename
-    download_url = f"http://121.41.168.85:8007/api/xiaozhi/otaMag/download/{download_filename}"
+    ota_download_base_url = get_env("OTA_DOWNLOAD_BASE_URL").strip()
+    download_url = f"{ota_download_base_url.rstrip('/')}/xiaozhi/otaMag/download/{download_filename}"
+
+    websocket_url = get_env("WEBSOCKET_URL").strip()
 
     response_data = {
         "server_time": {
@@ -300,7 +310,7 @@ async def handle_ota_request(
             "force": 0
         },
         "websocket": {
-            "url": "ws://121.41.168.85:8000/xiaozhi/v1/"
+            "url": websocket_url
         }
     }
     
