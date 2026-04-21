@@ -157,7 +157,7 @@ async def download_firmware(filename: str):
         raise HTTPException(status_code=404, detail="Firmware file not found")
 
     # 优先在 OTA 目录中查找与请求名称匹配的文件
-    ota_dir = "/var/local/jobobo-backend/OTA"
+    ota_dir = get_env("OTA_DIR") or "/var/local/jobobo-backend/OTA"
     firmware_path = os.path.join(ota_dir, filename)
 
     # 如果版本化文件不存在，回退到通用 Jabobo.bin（保持向后兼容）
@@ -276,7 +276,7 @@ async def handle_ota_request(
     # 首先将 firmware_version 清理为 safe_ver，然后确认 OTA 目录中确实存在该版本文件；
     # 如果不存在则回退到设备上报的 app_version（仍会尝试查找对应文件，若找不到下载路由会回退到通用 Jabobo.bin）
     firmware_version = "2.0.5" # 强制指定为2.0.5以测试版本化文件下载
-    ota_dir = "/var/local/jobobo-backend/OTA"
+    ota_dir = get_env("OTA_DIR") or "/var/local/jobobo-backend/OTA"
     safe_ver = str(firmware_version).replace(' ', '_')
     versioned_filename = f"Jabobo_{safe_ver}.bin"
     # 如果版本化文件在 OTA 目录中不存在，则回退到 app_version

@@ -11,7 +11,7 @@ router = APIRouter()
 
 # ========== 路径配置 ==========
 # APP 文件存放的物理路径
-PACKAGE_DIRECTORY = "/var/local/jobobo-backend/app/app_packages"
+PACKAGE_DIRECTORY = os.getenv("APP_PACKAGE_DIR", "/var/local/jobobo-backend/app/app_packages")
 # 安卓配置
 APK_NAME = "jabobo.apk"
 APK_MEDIA_TYPE = "application/vnd.android.package-archive"

@@ -13,6 +13,97 @@
 
 ---
 
+## 📚 API 路由总览
+
+主应用在 `app/main.py` 中统一通过 `app.include_router(..., prefix="/api")` 注册路由，因此以下接口的完整前缀均为 `/api`。
+
+### 认证模块 (`auth.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/login` | 用户登录，签发对应端 Token |
+| `POST` | `/api/logout` | 当前端登出，清除当前端 Token |
+| `POST` | `/api/logout/all` | 全端登出，清除所有端 Token |
+
+### 用户管理模块 (`users.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/users` | 获取后台用户列表 |
+| `POST` | `/api/users/{username}` | 删除指定用户及其配置 |
+| `PUT` | `/api/users/password` | 修改用户密码 |
+| `POST` | `/api/users` | 创建新用户 |
+
+### 配置与设备管理模块 (`jabobo_config.py` / `jabobo_manager.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/user/config` | 获取设备配置 / 用户配置 |
+| `POST` | `/api/user/sync-config` | 同步设备人设与记忆 |
+| `GET` | `/api/user/jabobo_ids` | 获取用户已绑定的设备 ID 列表 |
+| `POST` | `/api/user/bind` | 绑定新设备 |
+| `DELETE` | `/api/user/unbind` | 解绑设备 |
+| `PUT` | `/api/user/rebind` | 设备换绑并迁移数据 |
+
+### 设备端接口模块 (`device_data_api.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/user/device/full_data` | 按设备 ID 获取全量设备数据，无需鉴权 |
+| `PUT` | `/api/user/device/update_version` | 更新设备的 `current_version` 或 `expected_version` |
+| `GET` | `/api/xiaozhi/otaMag/download/{filename}` | 下载 OTA 固件 |
+| `HEAD` | `/api/xiaozhi/otaMag/download/{filename}` | 检查 OTA 固件是否存在，不返回文件体 |
+| `POST` | `/api/user/device/ota` | 处理设备 OTA 请求，返回升级信息、激活信息和 websocket 地址 |
+| `POST` | `/api/user/device/ota/activate` | 设备轮询激活状态 |
+
+### 知识库模块 (`jabobo_knowlege.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/user/upload-kb` | 上传知识库文件 |
+| `GET` | `/api/user/list-kb` | 获取知识库文件列表 |
+| `POST` | `/api/user/delete-kb` | 删除知识库文件 |
+| `POST` | `/api/user/generate-rag-prompt` | 根据知识库生成 RAG Prompt |
+
+### 聊天配置模块 (`chat_config.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/config/server-base` | 获取服务端基础配置 |
+| `POST` | `/api/config/agent-models` | 获取 Agent 模型配置 |
+| `PUT` | `/api/agent/saveMemory/{mac_address}` | 保存设备短期记忆 |
+
+### 声纹与音频模块 (`jabobo_voice.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/agent/chat-history/report` | 上报设备聊天历史和音频数据 |
+| `POST` | `/api/user/upload-audio` | 上传音频文件 |
+| `GET` | `/api/user/list-audio` | 获取音频文件列表 |
+| `POST` | `/api/user/delete-audio` | 删除音频文件 |
+| `POST` | `/api/voiceprint/register` | 注册声纹 |
+| `GET` | `/api/voiceprint/list` | 获取声纹列表 |
+| `POST` | `/api/voiceprint/delete` | 删除声纹 |
+
+### APP 管理模块 (`app_management.py`)
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/app/latest-version` | 获取最新 APP 版本信息 |
+| `GET` | `/api/app/download` | 下载 APP 安装包 |
+| `GET` | `/api/app/ios-plist` | 获取 iOS 安装描述文件 |
+
+### 路由说明与注意事项
+
+| 项目 | 说明 |
+| --- | --- |
+| 公共前缀 | 所有接口默认挂载在 `/api` 下 |
+| 自动文档 | 启动服务后可通过 `/docs` 和 `/redoc` 查看接口详情 |
+| 固件下载 | `/api/xiaozhi/otaMag/download/{filename}` 同时支持 `GET` 与 `HEAD` |
+| 路由冲突 | `/api/user/config` 当前在 `jabobo_config.py` 和 `jabobo_manager.py` 中都定义了 `GET` 路由。按 `app/main.py` 的注册顺序，当前会先命中 `jabobo_config.py` 对应实现，后续建议统一路径语义 |
+
+---
+
 ## 📂 快速启动
 
 ### 1. 数据库环境
@@ -76,7 +167,20 @@ kill -9 <PID>
 
 ```
 
-### 3. 数据库表修复
+### 3. OTA 固件与 APP 安装包路径
+
+固件文件（`.bin`）和 APP 安装包（`.apk`/`.ipa`）的存储路径通过环境变量配置：
+
+| 环境变量 | 本地默认值 | 用途 |
+| --- | --- | --- |
+| `OTA_DIR` | `OTA`（仓库目录） | OTA 固件文件存放路径 |
+| `APP_PACKAGE_DIR` | `app/app_packages`（仓库目录） | APK/IPA 安装包存放路径 |
+
+**本地开发**：`.env` 中配置为仓库内的相对路径（如 `OTA_DIR=OTA`），文件直接放在仓库中。
+
+**ACA 部署**：配置 Azure volume mount，将存储盘挂载到容器内（如 `/mnt/ota`），然后设置环境变量 `OTA_DIR=/mnt/ota`、`APP_PACKAGE_DIR=/mnt/app_packages`。这样更新固件或安装包时只需替换挂载盘中的文件，无需重新构建镜像。
+
+### 4. 数据库表修复
 
 若发现 `rebind`（换绑）操作导致数据异常，请运行此命令确保联合唯一索引存在：
 
