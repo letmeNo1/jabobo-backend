@@ -44,8 +44,7 @@ app/
 │   ├── jabobo_knowlege.py # Knowledge base management
 │   ├── jabobo_voice.py  # Voice profile management
 │   ├── chat_config.py   # Chat differentiation config
-│   ├── device_data_api.py # Device-side data endpoints (OTA firmware)
-│   └── app_management.py # APP version management & APK/IPA download
+│   └── device_data_api.py # Device-side data endpoints
 └── utils/
     ├── security.py      # Password hashing (bcrypt), token verification
     ├── dependencies.py  # FastAPI dependencies
@@ -79,11 +78,6 @@ Create a `.env` file in project root with:
 DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_DATABASE, DB_CHARSET
 ARK_API_KEY, ARK_EMBED_MODEL, ARK_BASE_URL  # For RAG functionality
 CHUNK_MAX_CHARS, CHUNK_OVERLAP, TOP_K, SIMILARITY_THRESHOLD, BATCH_SIZE
-OTA_DIR                          # OTA firmware directory (default: /var/local/jobobo-backend/OTA)
-APP_PACKAGE_DIR                  # APK/IPA directory (default: /var/local/jobobo-backend/app/app_packages)
-OTA_DOWNLOAD_BASE_URL            # Base URL for firmware download links
-OTA_URL                          # Full OTA endpoint URL
-WEBSOCKET_URL                    # WebSocket URL for device connection
 ```
 
 ### Device ID Format
