@@ -96,11 +96,10 @@ async def update_device_version(
         sql = f"UPDATE user_personas SET {', '.join(update_fields)} WHERE jabobo_id = %s"
         update_params.append(jabobo_id)
         
-        # 5. 执行更新操作
+        # 5. 执行更新操作（autocommit=True 无需显式 commit）
         db.cursor.execute(sql, tuple(update_params))
-        db.connection.commit()
-        
-        # 6. 处理更新结果
+
+        # 6. 处理更新结果（必须在 execute 后立即读取 rowcount）
         affected_rows = db.cursor.rowcount
         if affected_rows == 0:
             logger.warning(f"⚠️ [UPDATE_VERSION] 更新失败，未找到设备: {jabobo_id}")
@@ -324,31 +323,21 @@ async def handle_ota_request(
         logger.info(f"🔓 [OTA ACTIVATION] No activation needed for {device_id}")
     
     # 在返回响应前，更新数据库中的设备版本号
-    # 获取设备上报的当前版本号（如果有的话）
     current_version = app_version
-    # 如果存在当前版本号，则更新数据库
     if current_version and device_id:
         if not db.connect():
-            print(f"❌ [VERSION UPDATE ERROR] Database connection failed when updating version for device {device_id}")
+            logger.warning(f"⚠️ [VERSION UPDATE] 数据库连接失败: {device_id}")
         else:
             try:
-                # 更新设备的当前版本号
                 update_sql = "UPDATE user_personas SET current_version = %s WHERE jabobo_id = %s"
                 db.cursor.execute(update_sql, (current_version, device_id))
-                db.connection.commit()
-                
                 affected_rows = db.cursor.rowcount
                 if affected_rows > 0:
-                    print(f"🔄 [VERSION UPDATE] Successfully updated device {device_id} current version to {current_version}")
+                    logger.info(f"🔄 [VERSION UPDATE] {device_id} → {current_version}")
                 else:
-                    print(f"⚠️ [VERSION UPDATE] No device found with ID {device_id} for version update")
-                    
+                    logger.debug(f"📌 [VERSION UPDATE] {device_id} 版本未变化: {current_version}")
             except Exception as e:
-                print(f"❌ [VERSION UPDATE ERROR] Failed to update device {device_id} version: {str(e)}")
-                try:
-                    db.connection.rollback()
-                except:
-                    pass
+                logger.error(f"❌ [VERSION UPDATE] {device_id}: {str(e)}")
             finally:
                 db.close()
     

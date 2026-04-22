@@ -36,6 +36,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- 2.5 健康检查端点 ---
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "service": "jabobo-backend"}
+
 # --- 3. 注册所有模块路由 ---
 app.include_router(auth.router, prefix="/api", tags=["认证"])
 app.include_router(users.router, prefix="/api", tags=["用户管理"])
