@@ -144,7 +144,7 @@ async def get_agent_models_config(payload: dict):
         # 模拟代理模型配置
         agent_models_config = {
             "plugins": {
-                "get_weather": "{\"api_key\": \"" + get_env("WEATHER_API_KEY") + "\", \"api_host\": \"py78kyqwtq.re.qweatherapi.com\", \"default_location\": \"广州\"}"
+                "get_weather": "{\"api_key\": \"" + get_env("WEATHER_API_KEY") + "\", \"api_host\": \"py78kyqwtq.re.qweatherapi.com\", \"default_location\": \"Ballerup\"}"
             },
             "Memory": {
                 "Memory_mem_local_short": {
