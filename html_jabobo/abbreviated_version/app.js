@@ -959,7 +959,7 @@ function playOpusFromServer(opusData) {
 
 // 连接WebSocket服务器
 function connectToServer() {
-    let url = serverUrlInput.value || "ws://127.0.0.1:8000/xiaozhi/v1/";
+    let url = serverUrlInput.value || "ws://192.168.137.1:8000/ws/jabobo/v1";
     
     try {
         // 检查URL格式

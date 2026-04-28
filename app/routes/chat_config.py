@@ -13,8 +13,8 @@ load_dotenv()
 router = APIRouter()
 
 # 辅助函数：仅读取环境变量，不影响原格式
-def get_env(key: str) -> str:
-    return os.getenv(key, "")
+def get_env(key: str, default: str = "") -> str:
+    return os.getenv(key, default)
 
 # 1. 获取服务器基础配置
 @router.post("/config/server-base")
@@ -144,7 +144,7 @@ async def get_agent_models_config(payload: dict):
         # 模拟代理模型配置
         agent_models_config = {
             "plugins": {
-                "get_weather": "{\"api_key\": \"" + get_env("WEATHER_API_KEY") + "\", \"api_host\": \"py78kyqwtq.re.qweatherapi.com\", \"default_location\": \"广州\"}"
+                "get_weather": "{\"api_key\": \"" + get_env("WEATHER_API_KEY") + "\", \"api_host\": \"py78kyqwtq.re.qweatherapi.com\", \"default_location\": \"Ballerup\"}"
             },
             "Memory": {
                 "Memory_mem_local_short": {
@@ -153,7 +153,7 @@ async def get_agent_models_config(payload: dict):
                 }
             },
             "selected_module": {
-                "TTS": "HuoshanDoubleStreamTTS",
+                "TTS": "AzureTTS",
                 "Memory": "Memory_mem_local_short",
                 "Intent": "Intent_intent_llm",
                 "LLM": "LLM_AliLLM",
@@ -192,6 +192,13 @@ async def get_agent_models_config(payload: dict):
                 }
             },
             "TTS": {
+                "AzureTTS": {
+                    "type": "azure",
+                    "subscription_key": get_env("AZURE_TTS_SUBSCRIPTION_KEY"),
+                    "region": get_env("AZURE_TTS_REGION", "northeurope"),
+                    "voice": get_env("AZURE_TTS_VOICE", "en-US-AnaNeural"),
+                    "output_dir": "tmp/"
+                },
                 "TTS_TencentTTS": {
                     "type": "tencent",
                     "appid": "1391329716",
@@ -452,6 +459,82 @@ async def save_memory(
             "code": 500,
             "data": None,
             "msg": f"保存记忆时发生错误: {str(e)}"
+        }
+    finally:
+        db.close()
+
+@router.delete("/agent/clearMemory/{mac_address}")
+async def clear_memory(
+    mac_address: str = Path(..., description="设备MAC地址"),
+    user_agent: str = Header(..., alias="User-Agent"),
+    accept: str = Header(..., alias="Accept"),
+    authorization: str = Header(..., alias="Authorization")
+):
+    """
+    清除设备的短期记忆
+    """
+    logger.info(f"🧹 [MEMORY CLEAR] Request received for MAC: {mac_address}")
+
+    if not authorization.startswith("Bearer "):
+        return {
+            "code": 401,
+            "data": None,
+            "msg": "Authorization header format must be 'Bearer {token}'"
+        }
+
+    if not verify_device_exists(mac_address):
+        logger.warning(f"❌ [MEMORY CLEAR] Device with MAC {mac_address} not found")
+        return {
+            "code": 10041,
+            "data": None,
+            "msg": "设备未找到异常"
+        }
+
+    if not db.connect():
+        return {
+            "code": 500,
+            "data": None,
+            "msg": "数据库连接失败"
+        }
+
+    try:
+        # 先查看当前记忆
+        select_sql = "SELECT memory FROM user_personas WHERE jabobo_id = %s"
+        db.cursor.execute(select_sql, (mac_address,))
+        result = db.cursor.fetchone()
+
+        if result and result.get('memory'):
+            current_memory = result['memory']
+            logger.info(f"📝 [MEMORY CLEAR] Current memory: {current_memory[:100]}...")
+
+        # 清除记忆
+        update_sql = "UPDATE user_personas SET memory = NULL WHERE jabobo_id = %s"
+        db.cursor.execute(update_sql, (mac_address,))
+
+        if db.cursor.rowcount == 0:
+            logger.warning(f"❌ [MEMORY CLEAR] No device found with MAC {mac_address}")
+            return {
+                "code": 10041,
+                "data": None,
+                "msg": "设备未找到异常"
+            }
+
+        logger.success(f"✅ [MEMORY CLEAR] Memory cleared successfully for MAC: {mac_address}")
+
+        return {
+            "code": 0,
+            "data": {
+                "mac_address": mac_address
+            },
+            "msg": "记忆清除成功，AI将恢复默认行为"
+        }
+
+    except Exception as e:
+        logger.error(f"❌ [MEMORY CLEAR] Error clearing memory for MAC {mac_address}: {str(e)}")
+        return {
+            "code": 500,
+            "data": None,
+            "msg": f"清除记忆时发生错误: {str(e)}"
         }
     finally:
         db.close()

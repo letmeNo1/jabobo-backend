@@ -303,7 +303,7 @@ async def handle_ota_request(
 
     download_filename = versioned_filename
     fronted_url = get_env("FRONTED_URL", "http://192.168.137.1:8007").rstrip("/")
-    websocket_url = get_env("WEBSOCKET_URL", "ws://192.168.137.1:8000/xiaozhi/v1/")
+    websocket_url = get_env("WEBSOCKET_URL", "ws://192.168.137.1:8000/ws/jabobo/v1")
     download_url = f"{fronted_url}/api/xiaozhi/otaMag/download/{download_filename}"
 
     response_data = {

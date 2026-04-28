@@ -34,6 +34,14 @@ def truncate_log_text(text: str, max_len: int = 50) -> str:
     return text or ""
 
 
+def sanitize_path_component(value: str, fallback: str = "unknown") -> str:
+    text = str(value or fallback)
+    invalid_chars = '<>:"/\\|?*'
+    sanitized = "".join("_" if char in invalid_chars else char for char in text)
+    sanitized = sanitized.strip().strip(".")
+    return sanitized or fallback
+
+
 def get_username_by_jabobo_id(jabobo_id: str):
     """根据设备ID查询对应的用户名，适配联合主键"""
     logger.debug(f"[用户查询] 开始通过设备ID查询用户名 - jabobo_id：{jabobo_id}")
@@ -178,6 +186,8 @@ async def report_chat_history(request: Request):
         
         # 通过设备ID查询对应的用户名
         username = get_username_by_jabobo_id(jabobo_id)
+        safe_username = sanitize_path_component(username, "unknown_user")
+        safe_jabobo_id = sanitize_path_component(jabobo_id, "unknown_device")
         
         # 如果有音频数据，进行处理
         if audioBase64:
@@ -193,7 +203,7 @@ async def report_chat_history(request: Request):
                 raise HTTPException(status_code=400, detail="音频数据base64解码失败")
             
             # 创建音频文件存储目录
-            target_dir = os.path.join(BASE_DATA_DIR, username, jabobo_id, "audio_files")
+            target_dir = os.path.join(BASE_DATA_DIR, safe_username, safe_jabobo_id, "audio_files")
             logger.debug(f"[目录创建] 音频目标目录：{target_dir}")
             os.makedirs(target_dir, exist_ok=True)
             
@@ -217,7 +227,9 @@ async def report_chat_history(request: Request):
             
             # 生成音频文件名（使用时间戳和sessionId确保唯一性）
             timestamp = datetime.fromtimestamp(reportTime).strftime("%Y%m%d_%H%M%S")
-            audio_filename = f"audio_{sessionId}_{timestamp}_{truncate_log_text(audio_content, 10)}.wav"  # 假设是WAV格式
+            safe_session_id = sanitize_path_component(sessionId, "unknown_session")
+            safe_audio_content = sanitize_path_component(truncate_log_text(audio_content, 10), "audio")
+            audio_filename = f"audio_{safe_session_id}_{timestamp}_{safe_audio_content}.wav"
             file_path = os.path.join(target_dir, audio_filename)
             file_path = os.path.abspath(file_path)
             
@@ -312,6 +324,7 @@ async def report_chat_history(request: Request):
                 """
                 logger.debug(f"[数据库操作] 执行更新SQL：{upsert_sql} | 参数：({username}, {jabobo_id}, {truncate_log_text(audio_status_json, 100)})")
                 cursor.execute(upsert_sql, (username, jabobo_id, audio_status_json))
+                db.connection.commit()
                 
             except Exception as e:
                 logger.error(f"[音频存储异常] 失败 - 异常信息：{str(e)}", exc_info=True)
@@ -402,13 +415,16 @@ async def upload_audio_file(
 
     # 3. 创建音频文件存储目录（仅基于设备ID，移除用户名层级）
     logger.debug(f"[目录创建] 开始创建音频存储目录")
-    target_dir = os.path.join(BASE_DATA_DIR, username,jabobo_id,"audio_files")  # 仅保留设备ID目录
+    safe_username = sanitize_path_component(username, "unknown_user")
+    safe_jabobo_id = sanitize_path_component(jabobo_id, "unknown_device")
+    safe_file_name = sanitize_path_component(file.filename, "audio.wav")
+    target_dir = os.path.join(BASE_DATA_DIR, safe_username, safe_jabobo_id, "audio_files")  # 仅保留设备ID目录
     logger.debug(f"[目录创建] 音频目标目录：{target_dir}")
     os.makedirs(target_dir, exist_ok=True)
     logger.debug(f"[目录创建] 音频目录创建完成（已存在则跳过）")
     
     # 4. 构建音频文件路径
-    file_path = os.path.join(target_dir, file.filename)
+    file_path = os.path.join(target_dir, safe_file_name)
     file_path = os.path.abspath(file_path)
     logger.debug(f"[文件存储] 音频目标文件路径：{file_path}")
     
@@ -906,7 +922,7 @@ async def register_voiceprint(
         }
     
     except Exception as e:
-        logger.error(f"[声纹注册异常] 失败 - 异常信息：{str(e)}", exc_info=True)
+        logger.error("[声纹注册异常] 失败 - 异常信息：%s", str(e), exc_info=True)
         if db_connected and db.connection:
             try:
                 logger.info(f"[数据库回滚] 开始回滚事务")

@@ -1,7 +1,10 @@
 from app.utils.logger import logger 
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.routes import (
     auth, users, jabobo_config, jabobo_manager, 
@@ -46,6 +49,9 @@ app.include_router(jabobo_knowlege.router, prefix="/api", tags=["知识库管理
 app.include_router(chat_config.router, prefix="/api", tags=["聊天差异化配置"]) 
 app.include_router(jabobo_voice.router, prefix="/api", tags=["声纹管理"])
 app.include_router(app_management.router, prefix="/api", tags=["APP管理"])
+
+html_jabobo_dir = Path(__file__).resolve().parent.parent / "html_jabobo"
+app.mount("/html_jabobo", StaticFiles(directory=html_jabobo_dir), name="html_jabobo")
 
 # 启动确认日志
 logger.info("✅ 所有 API 路由注册完成，准备接收请求。")

@@ -484,8 +484,8 @@
             <div class="connection-controls">
                 <input type="text" id="otaUrl" value="http://localhost:8007/api/user/device/ota"
                     placeholder="OTA服务器地址，如：http://localhost:8007/api/user/device/ota" />
-                <input type="text" id="serverUrl" value="ws://121.41.168.85:8000/xiaozhi/v1/"
-                    placeholder="WebSocket服务器地址，如：ws://121.41.168.85:8000/xiaozhi/v1/" />
+                <input type="text" id="serverUrl" value="ws://192.168.137.1:8000/ws/jabobo/v1"
+                    placeholder="WebSocket服务器地址，如：ws://192.168.137.1:8000/ws/jabobo/v1" />
                 <button id="connectButton">连接</button>
                 <button id="authTestButton">测试认证</button>
             </div>
@@ -1075,13 +1075,11 @@
         async function initAudio() {
             try {
                 // 请求麦克风权限
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 16000,  // 确保16kHz采样率
-                        channelCount: 1     // 确保单声道
-                    }
+                const stream = await requestMicrophoneStream({
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 16000,  // 确保16kHz采样率
+                    channelCount: 1     // 确保单声道
                 });
                 log('已获取麦克风访问权限', 'success');
 
@@ -1270,10 +1268,10 @@
                 const serverUrl = serverUrlInput.value.trim();
                 let isXiaozhiNative = false;
 
-                // 检查是否是小智原生服务器 (根据URL特征判断)
-                if (serverUrl.includes('xiaozhi') || serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) {
+                // 检查是否是 jabobo 原生服务器 (根据URL特征判断)
+                if (serverUrl.includes('xiaozhi') || serverUrl.includes('jabobo') || serverUrl.includes('localhost') || serverUrl.includes('127.0.0.1')) {
                     isXiaozhiNative = true;
-                    log('检测到小智原生服务器，使用标准listen协议', 'info');
+                    log('检测到jabobo原生服务器，使用标准listen协议', 'info');
                 }
 
                 // 使用直接PCM录音和libopus编码的方式
@@ -1989,6 +1987,62 @@
             });
         }
 
+        let audioWorkletStatus = {
+            supported: null,
+            reason: ''
+        };
+
+        function getAudioWorkletSupportInfo() {
+            if (!window.AudioContext && !window.webkitAudioContext) {
+                return { supported: false, reason: '浏览器不支持AudioContext' };
+            }
+
+            if (typeof AudioWorkletNode === 'undefined') {
+                return { supported: false, reason: '浏览器不支持AudioWorkletNode' };
+            }
+
+            if (!audioContext || !audioContext.audioWorklet) {
+                return { supported: false, reason: '当前AudioContext不支持audioWorklet' };
+            }
+
+            if (location.protocol === 'file:') {
+                return { supported: false, reason: 'file协议下不尝试加载AudioWorklet模块' };
+            }
+
+            if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                return { supported: false, reason: '当前页面不是安全上下文，浏览器可能拒绝加载AudioWorklet模块' };
+            }
+
+            return { supported: true, reason: '' };
+        }
+
+        async function requestMicrophoneStream(audioConstraints) {
+            const insecureHttpOrigin = location.protocol === 'http:'
+                && location.hostname !== 'localhost'
+                && location.hostname !== '127.0.0.1';
+
+            if (insecureHttpOrigin) {
+                throw new Error('当前页面是非安全HTTP来源，浏览器不会开放麦克风。请改用 http://127.0.0.1:8007/html_jabobo/test_page.html 或 HTTPS');
+            }
+
+            if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+                return navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+            }
+
+            const legacyGetUserMedia = navigator.getUserMedia
+                || navigator.webkitGetUserMedia
+                || navigator.mozGetUserMedia
+                || navigator.msGetUserMedia;
+
+            if (legacyGetUserMedia) {
+                return new Promise((resolve, reject) => {
+                    legacyGetUserMedia.call(navigator, { audio: audioConstraints }, resolve, reject);
+                });
+            }
+
+            throw new Error('当前浏览器环境不支持麦克风采集接口，请使用最新版 Chrome/Edge，并优先通过 localhost 打开测试页');
+        }
+
         // PCM录音处理器代码 - 会被注入到AudioWorklet中
         const audioProcessorCode = `
             class AudioRecorderProcessor extends AudioWorkletProcessor {
@@ -2061,13 +2115,27 @@
             }
 
             try {
-                // 检查是否支持AudioWorklet
-                if (audioContext.audioWorklet) {
+                const workletSupport = audioWorkletStatus.supported === false
+                    ? audioWorkletStatus
+                    : getAudioWorkletSupportInfo();
+
+                if (workletSupport.supported) {
                     // 注册音频处理器
                     const blob = new Blob([audioProcessorCode], { type: 'application/javascript' });
                     const url = URL.createObjectURL(blob);
-                    await audioContext.audioWorklet.addModule(url);
-                    URL.revokeObjectURL(url);
+
+                    try {
+                        await audioContext.audioWorklet.addModule(url);
+                        audioWorkletStatus = { supported: true, reason: '' };
+                    } catch (workletError) {
+                        audioWorkletStatus = {
+                            supported: false,
+                            reason: workletError.message || '浏览器拒绝加载AudioWorklet模块'
+                        };
+                        throw workletError;
+                    } finally {
+                        URL.revokeObjectURL(url);
+                    }
 
                     // 创建音频处理节点
                     const audioProcessor = new AudioWorkletNode(audioContext, 'audio-recorder-processor');
@@ -2084,9 +2152,10 @@
                     return { node: audioProcessor, type: 'worklet' };
                 } else {
                     // 使用旧版ScriptProcessorNode作为回退方案
-                    log('AudioWorklet不可用，使用ScriptProcessorNode作为回退方案', 'warning');
+                    audioWorkletStatus = workletSupport;
+                    log(`AudioWorklet不可用: ${workletSupport.reason}，使用ScriptProcessorNode作为回退方案`, 'warning');
 
-                    const frameSize = 4096; // ScriptProcessorNode缓冲区大小
+                    const frameSize = 2048; // 降低回退链路缓冲，减少录音起步延迟
                     const scriptProcessor = audioContext.createScriptProcessor(frameSize, 1, 1);
 
                     // 将audioProcess事件设置为处理音频数据
@@ -2119,7 +2188,7 @@
 
                 // 最后回退方案：使用ScriptProcessorNode
                 try {
-                    const frameSize = 4096; // ScriptProcessorNode缓冲区大小
+                    const frameSize = 2048; // 降低回退链路缓冲，减少录音起步延迟
                     const scriptProcessor = audioContext.createScriptProcessor(frameSize, 1, 1);
 
                     scriptProcessor.onaudioprocess = (event) => {
@@ -2242,13 +2311,11 @@
                 }
 
                 // 请求麦克风权限
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 16000,
-                        channelCount: 1
-                    }
+                const stream = await requestMicrophoneStream({
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 16000,
+                    channelCount: 1
                 });
 
                 // 创建音频上下文和分析器

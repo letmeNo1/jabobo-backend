@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../Jabob-server"
+		},
+		{
+			"path": "../voiceprint-api"
+		}
+	]
+}
